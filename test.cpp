@@ -45,7 +45,7 @@ TEST(Read, BinaryValue)
 TEST(Read, StringValue)
 {
     auto key = CurrentUser[L"test"][L"NewTestKey"];
-    auto const value = key.valueOf(L"stringValue\\0").as<Type::String>();
+    auto const value = key.valueOf(L"stringValue").as<Type::String>();
     EXPECT_EQ(value.getValue(), L"string value");
 }
 TEST(Read, DwordValue)
@@ -59,6 +59,20 @@ TEST(Read, QwordValue)
     auto key = CurrentUser[L"test"][L"NewTestKey"];
     auto const value = key.valueOf(L"qwordValue").as<Type::Qword>();
     EXPECT_EQ(value.getValue(), 0x162e);
+}
+TEST(Read, UnexpandedStringValue)
+{
+    auto key = CurrentUser[L"test"][L"NewTestKey"];
+    auto const value = key.valueOf(L"unexpandedStringValue").as<Type::UnexpandedString>();
+    auto const originalString = value.getValue();
+    auto const expandedString = value.expand();
+    EXPECT_NE(originalString, expandedString);
+}
+TEST(Read, MultiStringValue)
+{
+    auto key = CurrentUser[L"test"][L"NewTestKey"];
+    auto const value = key.valueOf(L"multiString").as<Type::MultiString>();
+    EXPECT_EQ(value.getValue(), L"multi\0string\0");
 }
 
 
@@ -123,8 +137,70 @@ TEST(DeleteValue, DeleteBinaryValue)
 //Enum key
 TEST(Enum, EnumKeys)
 {
+    auto key = CurrentUser[L"test"][L"EnumKeys"];
+    std::array const expectedName{
+        L"subkey"
+        L"binaryValue",
+        L"dwordValue",
+        L"qwordValue",
+        L"stringValue",
+        L"multiStringValue",
+        L"UnexpandedStringValue"
+    };
+    std::array const expectedType
+    {
+        
+        Type::Binary,
+        Type::Dword,
+        Type::Qword,
+        Type::String,
+        Type::MultiString,
+        Type::UnexpandedString
+    };
+    
+    std::set<std::wstring> actualName;
+    std::set<Type> actualTypes;
 
+    for (auto child : key)
+    {
+        std::visit(
+            [&](auto&& node)
+            {
+                if constexpr (!std::is_same_v<std::decay_t<decltype(node)>, Key>)
+                {
+                    actualName.insert(std::wstring{ node.getName() });
+                    actualTypes.insert(node.ValueType_v);
+                }
+            }, 
+            child
+        );
+    }
+    EXPECT_EQ(actualName.size(), expectedName.size());
+    EXPECT_EQ(actualTypes.size(), expectedType.size());
 }
+
+TEST(Enum, EnumEmpty)
+{
+    auto key = CurrentUser[L"test"][L"empty"];
+    EXPECT_EQ(key.begin(), key.end());
+}
+
+//Rename key
+TEST(Rename, RenameKey)
+{
+    auto key = CurrentUser[L"test"][L"oldName"];
+    key.rename(L"newName");
+    EXPECT_NO_THROW(CurrentUser[L"test"][L"newName"]);
+}
+
+TEST(Additional, SplitString)
+{
+    auto key = CurrentUser[L"test"][L"NewTestKey"].valueOf(L"multiString").as<Type::MultiString>();
+    auto const splitResult = key.split();
+    EXPECT_EQ(splitResult[0], "multi");
+    EXPECT_EQ(splitResult[1], "string");
+}
+
 
 
 int main(int argc, char **argv) 

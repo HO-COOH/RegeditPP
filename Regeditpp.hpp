@@ -4,6 +4,7 @@
 #include <vector>
 #include <string_view>
 #include <variant>
+#include <optional>
 
 using QWORD = uint64_t;
 
@@ -46,9 +47,25 @@ namespace RegeditPP
         None = REG_NONE,
     };
 
+    template<Type T>
+    class Value;
+
     template<typename This>
     struct ValueBase
     {
+    private:
+        template<typename T>
+        struct GetValueTypeFromThis;
+
+        template<Type type>
+        struct GetValueTypeFromThis<Value<type>>
+        {
+            constexpr static auto inline ValueType_v = type;
+        };
+    public:
+
+        constexpr static auto inline ValueType_v = GetValueTypeFromThis<This>::ValueType_v;
+
         std::wstring_view m_name;
 
         auto const& getValue() const
@@ -56,10 +73,13 @@ namespace RegeditPP
             return static_cast<This const*>(this)->m_value;
         }
 
+        auto const& getName() const
+        {
+            return m_name;
+        }
     };
 
-    template<Type T>
-    class Value;
+
 
     template<>
     class Value<Type::Binary> : public ValueBase<Value<Type::Binary>>
@@ -134,6 +154,7 @@ namespace RegeditPP
     template<Type type>
     class StringValueBase : public ValueBase<Value<type>>
     {
+    protected:
         std::wstring m_value;
         friend struct ValueBase<Value<type>>;
     public:
@@ -174,6 +195,19 @@ namespace RegeditPP
             : StringValueBase{ name, std::move(value) }
         {
         }
+
+        std::vector<std::wstring_view> split() const
+        {
+            //auto iter = m_value.cbegin();
+            //std::vector<std::wstring_view> result;
+            //while (iter != m_value.cend())
+            //{
+            //    result.emplace_back(
+            //        m_value.substr( )
+            //    )
+            //}
+            return {};
+        }
     };
 
     template<>
@@ -184,6 +218,19 @@ namespace RegeditPP
         Value(std::wstring_view name, std::wstring&& value)
             : StringValueBase{ name, std::move(value) }
         {
+        }
+
+        std::wstring expand() const
+        {
+            //first get the required length for buffer
+            auto const length = ExpandEnvironmentStringsW(
+                getData(),
+                nullptr,
+                0
+            );
+            std::wstring expanded(length, 0);
+            assert(ExpandEnvironmentStringsW(getData(), &expanded[0], length) == length);
+            return expanded;
         }
     };
 
@@ -313,7 +360,7 @@ namespace RegeditPP
                         &bytes          //lpcbData
                     );
 
-                    std::wstring value(bytes / sizeof(wchar_t), 0);
+                    std::wstring value((bytes / sizeof(wchar_t)) - 1, 0);
                     valueAs_impl(name, &value[0], bytes);
                     return Value<type>{name, std::move(value)};
                 }
@@ -370,9 +417,50 @@ namespace RegeditPP
             return *this;
         }
 
+
         Key& operator-=(std::wstring_view valueName)
         {
+            RegDeleteValueW(
+                m_keyHandle,        //hkey
+                valueName.data()    //lpValueName
+            );
             return *this;
+        }
+
+
+        void remove(std::wstring_view subKey, bool recursive = false) const
+        {
+            if (recursive)
+            {
+                RegDeleteTreeW(
+                    m_keyHandle,    //hkey
+                    subKey.data()
+                );
+            }
+            else
+            {
+                RegDeleteKeyW(
+                    m_keyHandle,    //hkey
+                    subKey.data()   //lpSubKey
+                );
+            }
+        }
+
+        void remove(bool recursive = false) const
+        {
+            if (recursive)
+            {
+                RegDeleteTreeW(
+                    m_keyHandle,
+                    nullptr
+                );
+            }
+            else
+            {
+                //RegDeleteKeyW(
+                //    //TODO, subkey must not be NULL
+                //)
+            }
         }
 
         ~Key()
@@ -384,11 +472,11 @@ namespace RegeditPP
         using ValueVariant = std::variant<
             Value<Type::Binary>,
             Value<Type::Dword>,
-            Value<Type::DwordBigEndian>,
+            //Value<Type::DwordBigEndian>,
             Value<Type::UnexpandedString>,
-            Value<Type::Link>,
+            //Value<Type::Link>,
             Value<Type::MultiString>,
-            Value<Type::None>,
+            //Value<Type::None>,
             Value<Type::Qword>,
             Value<Type::String>,
             Key
@@ -520,14 +608,6 @@ namespace RegeditPP
             return Key{keyHandle};
         }
 
-        void remove(std::wstring_view subKey) const
-        {
-            RegDeleteKeyW(
-                m_keyHandle,    //hkey
-                subKey.data()   //lpSubKey
-            );
-        }
-
         constexpr auto valueOf(std::wstring_view name) const
         {
             return UnspecifiedValue{ name, m_keyHandle };
@@ -583,6 +663,15 @@ namespace RegeditPP
             return Iterator{ numChild.subKeys + numChild.values, {}, {} };
         }
 
+        [[nodiscard]]bool isReflectionEnabled() const
+        {
+            BOOL value{};
+            RegQueryReflectionKey(
+                m_keyHandle,    //hBase
+                &value          //bIsReflectionDisabled
+            );
+            return !static_cast<bool>(value);
+        }
 
 
         void flush() const
