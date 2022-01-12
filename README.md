@@ -1,5 +1,5 @@
 # RegeditPP
-A modern C++ wrapper for Win32 Registry utilities.
+A modern C++17 wrapper for Win32 Registry utilities.
 
 ## Keys
 ### Pre-opened keys
@@ -40,7 +40,7 @@ operator `-= L"valueName"` to delete a value. For example,
 ```cpp
 auto run = CurrentUser[L"Software"][L"Microsoft"][L"Windows"][L"CurrentVersion"][L"Run"];
 run -= L"LGHUB";    //Stop logitech g-hub auto launching when Windows start up
-
+run += Value<Type::String>(L"My Application", L"...");
 ```
 
 
@@ -56,15 +56,15 @@ There are 2 ways to read a value.
   ```
 - If you are **NOT** sure about the type, first get the type, then use a `switch` statement to handle it according to your need
   ```cpp
-  auto unknownTypeValue = CurrentUser[L"..."];
+  auto unknownTypeValue = CurrentUser[L"subKey"].valueOf(L"valueName");
   switch(unknownTypeValue.getType())
   {
       case Type::Binary:
       {
           auto binaryValue = unknownTypeValue.as<Type::Binary>();
-          ...
+          //process binary value...
       }
-      ...
+      //other cases...
   }
   ```
 ### Enumerating Registry Subkeys
@@ -75,9 +75,30 @@ supported value-types [(see below)](###Types) as well as the key type.
 Then you may use `std::visit()` to call different functions
 for different value types.
 ```cpp
+template<typename... Functions> 
+struct overloaded : Functions... 
+{ 
+    using Functions::operator()...;
+};
+template<typename... Functions>
+overloaded(Functions...) -> overloaded<Functions...>;
+
 for(auto child : key) //child is a std::variant
 {
-    std::visit()
+    std::visit(
+        overloaded
+        {
+            [](Value<Type::Binary> const& value)
+            {
+                //process binary value
+            },
+            [](Value<Type::String> const& value)
+            {
+                //process string value
+            }
+        },
+        child
+    );
 }
 ```
 ### Deleting a Key with Subkeys
@@ -103,11 +124,11 @@ All value types are listed as below
 - `Value<Type::String>` -> `REG_SZ`
 
 All `Value<>` types support these methods:
-- `getValue()` that returns the data that best expressed in C++
+- `get` that returns the data that best expressed in C++
   + Binary type returns `std::vector<BYTE>`
   + Dword type returns `DWORD`
   + Qword type returns `QWORD`
-  + String types returns `std::wstring`
+  + String types (including unexpanded string and multi-string) returns `std::wstring`
 - `getData()` returns a pointer to the underlying storage, which you should not modify
 - `getName()` returns the name of the value
 
@@ -115,10 +136,17 @@ There are also additional methods that are supported in specific types, for exam
 `Value<Type::UnexpanedString>` has `.expand()` that returns a string with the environment variables expanded. 
 You can find out those methods with the assistance of your IDE.
 
+### Constructing a value
+You usually construct a value when editing a key.
+A value is constructed with a value name, and its corresponding data that is best expressed in C++ that already described above.
+For example, a `Value<Type::String>` can be constructed with a name and a string.
+```cpp
+Value<Type::String>{L"name", L"value"};
+```
+
 ## Inter-op
 This small header-only library is written with inter-op with Win32 APIs in mind for greater flexibility.
 There is a getter function called `.getXYZ()` on multiple wrapper classes. For example
 ```cpp
 HKEY keyHandle = key.getHandle();
-
 ```

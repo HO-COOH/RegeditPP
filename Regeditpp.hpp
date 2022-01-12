@@ -68,7 +68,7 @@ namespace RegeditPP
 
         std::wstring_view m_name;
 
-        auto const& getValue() const
+        auto const& get() const
         {
             return static_cast<This const*>(this)->m_value;
         }
@@ -93,7 +93,7 @@ namespace RegeditPP
         {
         }
 
-        auto getData() const
+        auto getPointer() const
         {
             return m_value.data();
         }
@@ -122,7 +122,7 @@ namespace RegeditPP
             return sizeof(DWORD);
         }
         
-        constexpr auto getData() const
+        constexpr auto getPointer() const
         {
             return &m_value;
         }
@@ -145,7 +145,7 @@ namespace RegeditPP
             return sizeof(QWORD);
         }
 
-        constexpr auto getData() const
+        constexpr auto getPointer() const
         {
             return &m_value;
         }
@@ -169,7 +169,7 @@ namespace RegeditPP
             return m_value.size() * sizeof(m_value.front());
         }
 
-        auto getData() const
+        auto getPointer() const
         {
             return &m_value[0];
         }
@@ -198,15 +198,18 @@ namespace RegeditPP
 
         std::vector<std::wstring_view> split() const
         {
-            //auto iter = m_value.cbegin();
-            //std::vector<std::wstring_view> result;
-            //while (iter != m_value.cend())
-            //{
-            //    result.emplace_back(
-            //        m_value.substr( )
-            //    )
-            //}
-            return {};
+            auto iter = m_value.cbegin();
+            std::vector<std::wstring_view> result;
+            
+            size_t start = 0;
+            for (size_t i = 0; i < m_value.size(); ++i)
+            {
+                if (m_value[i] == L'\0' || i == m_value.size() - 1)
+                {
+                    result.push_back(m_value.substr(start, i - start + 1));
+                }
+            }
+            return result;
         }
     };
 
@@ -224,12 +227,12 @@ namespace RegeditPP
         {
             //first get the required length for buffer
             auto const length = ExpandEnvironmentStringsW(
-                getData(),
+                getPointer(),
                 nullptr,
                 0
             );
             std::wstring expanded(length, 0);
-            assert(ExpandEnvironmentStringsW(getData(), &expanded[0], length) == length);
+            assert(ExpandEnvironmentStringsW(getPointer(), &expanded[0], length) == length);
             return expanded;
         }
     };
@@ -374,7 +377,7 @@ namespace RegeditPP
                     name.data(),                                    //lpValueName
                     0,                                              //reserved
                     static_cast<DWORD>(type),                       //dwType
-                    reinterpret_cast<BYTE const*>(value.getData()), //lpData
+                    reinterpret_cast<BYTE const*>(value.getPointer()), //lpData
                     value.getSize()                                 //cbData
                 );
             }
@@ -411,7 +414,7 @@ namespace RegeditPP
                 value.m_name.data(),            //lpValueName
                 0,                              //Reserved
                 static_cast<DWORD>(ValueType),  //dwType
-                reinterpret_cast<BYTE const*>(value.getData()),         //lpData
+                reinterpret_cast<BYTE const*>(value.getPointer()),         //lpData
                 value.getSize()
             );
             return *this;
@@ -446,21 +449,12 @@ namespace RegeditPP
             }
         }
 
-        void remove(bool recursive = false) const
+        void remove() const
         {
-            if (recursive)
-            {
-                RegDeleteTreeW(
-                    m_keyHandle,
-                    nullptr
-                );
-            }
-            else
-            {
-                //RegDeleteKeyW(
-                //    //TODO, subkey must not be NULL
-                //)
-            }
+            RegDeleteTreeW(
+                m_keyHandle,
+                nullptr
+            );
         }
 
         ~Key()
@@ -584,6 +578,10 @@ namespace RegeditPP
         Key operator[](wchar_t const* subKey) const
         {
             return this->operator[](std::wstring_view{ subKey });
+        }
+        ValueVariant operator[](size_t index) const
+        {
+            return *Iterator{ index, m_keyHandle, getNumChild() };
         }
 
         operator bool() const
