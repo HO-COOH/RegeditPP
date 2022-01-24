@@ -5,6 +5,7 @@
 #include <string_view>
 #include <variant>
 #include <optional>
+#include <cassert>
 
 using QWORD = uint64_t;
 
@@ -66,7 +67,15 @@ namespace RegeditPP
 
         constexpr static auto inline ValueType_v = GetValueTypeFromThis<This>::ValueType_v;
 
-        std::wstring_view m_name;
+        std::wstring m_name;
+
+        ValueBase(std::wstring_view name) : m_name{ std::wstring{name} }
+        {
+        }
+
+        ValueBase(std::wstring name) : m_name{ std::move(name) }
+        {
+        }
 
         auto const& get() const
         {
@@ -87,8 +96,8 @@ namespace RegeditPP
         std::vector<BYTE> m_value;
         friend struct ValueBase<Value<Type::Binary>>;
     public:
-        Value(std::wstring_view name, std::vector<BYTE>&& value): 
-            ValueBase{name},
+        Value(std::wstring name, std::vector<BYTE>&& value): 
+            ValueBase{std::move(name)},
             m_value{std::move(value)}
         {
         }
@@ -111,8 +120,8 @@ namespace RegeditPP
         DWORD m_value;
         friend struct ValueBase<Value<Type::Dword>>;
     public:
-        Value(std::wstring_view name, DWORD value):
-            ValueBase{name},
+        Value(std::wstring name, DWORD value):
+            ValueBase{ std::move(name) },
             m_value{value}
         {
         }
@@ -134,8 +143,8 @@ namespace RegeditPP
         QWORD m_value;
         friend struct ValueBase<Value<Type::Qword>>;
     public:
-        Value(std::wstring_view name, QWORD value):
-            ValueBase{ name },
+        Value(std::wstring name, QWORD value):
+            ValueBase{ std::move(name) },
             m_value{ value }
         {
         }
@@ -158,8 +167,8 @@ namespace RegeditPP
         std::wstring m_value;
         friend struct ValueBase<Value<type>>;
     public:
-        StringValueBase(std::wstring_view name, std::wstring&& value):
-            ValueBase{name},
+        StringValueBase(std::wstring name, std::wstring&& value):
+            ValueBase<Value<type>>{std::move(name)},
             m_value{std::move(value)}
         {
         }
@@ -180,8 +189,8 @@ namespace RegeditPP
     {
         friend struct ValueBase<Value<Type::String>>;
     public:
-        Value(std::wstring_view name, std::wstring&& value)
-            : StringValueBase{ name, std::move(value) }
+        Value(std::wstring name, std::wstring&& value)
+            : StringValueBase{ std::move(name), std::move(value) }
         {
         }
     };
@@ -191,22 +200,23 @@ namespace RegeditPP
     {
         friend struct ValueBase<Value<Type::MultiString>>;
     public:
-        Value(std::wstring_view name, std::wstring&& value)
-            : StringValueBase{ name, std::move(value) }
+        Value(std::wstring name, std::wstring&& value)
+            : StringValueBase{ std::move(name), std::move(value) }
         {
         }
 
-        std::vector<std::wstring_view> split() const
+        std::vector<std::wstring> split() const
         {
             auto iter = m_value.cbegin();
-            std::vector<std::wstring_view> result;
+            std::vector<std::wstring> result;
             
             size_t start = 0;
             for (size_t i = 0; i < m_value.size(); ++i)
             {
                 if (m_value[i] == L'\0' || i == m_value.size() - 1)
                 {
-                    result.push_back(m_value.substr(start, i - start + 1));
+                    result.push_back(m_value.substr(start, i - start));
+                    start = i + 1;
                 }
             }
             return result;
@@ -218,8 +228,8 @@ namespace RegeditPP
     {
         friend struct ValueBase<Value<Type::UnexpandedString>>;
     public:
-        Value(std::wstring_view name, std::wstring&& value)
-            : StringValueBase{ name, std::move(value) }
+        Value(std::wstring name, std::wstring&& value)
+            : StringValueBase{ std::move(name), std::move(value)}
         {
         }
 
@@ -263,22 +273,25 @@ namespace RegeditPP
 
         Key(HKEY const currentKey, std::wstring_view subKey, bool keepAlive) : m_keepAlive{ keepAlive }
         {
-            auto const result = RegOpenKeyExW(
-                currentKey,
-                subKey.data(),
-                0,
-                AccessRight::Default,       //TODO
-                &m_keyHandle
-            );
-            if (result != ERROR_SUCCESS)
+            if (!subKey.empty())
             {
-                throw std::runtime_error("RegOpenKeyExW failed");
+                auto const result = RegOpenKeyExW(
+                    currentKey,
+                    subKey.data(),
+                    0,
+                    AccessRight::Default,       //TODO
+                    &m_keyHandle
+                );
+                if (result != ERROR_SUCCESS)
+                {
+                    throw std::runtime_error("RegOpenKeyExW failed");
+                }
             }
         }
 
         class UnspecifiedValue
         {
-            std::wstring_view name;
+            std::wstring name;
             HKEY m_keyHandle;
 
             template<typename T>
@@ -293,10 +306,10 @@ namespace RegeditPP
                     &bytes
                 );
             }
-
+            std::optional<Type> m_type;
         public:
-            constexpr UnspecifiedValue(std::wstring_view name, HKEY key) :
-                name{name},
+            UnspecifiedValue(std::wstring name, HKEY key) :
+                name{std::move(name)},
                 m_keyHandle{key}
             {}
 
@@ -305,21 +318,21 @@ namespace RegeditPP
             {
                 if constexpr (type == Type::Binary)
                 {
-                    DWORD type{};
+                    DWORD typeValue{};
                     DWORD bytes{};
 
                     RegQueryValueExW(
                         m_keyHandle,    //hkey
                         name.data(),    //lpValueName
                         0,              //lpReserved
-                        &type,          //lpType
+                        &typeValue,          //lpType
                         nullptr,        //lpData
                         &bytes          //lpcbData
                     );
 
                     std::vector<BYTE> data(bytes, 0);
                     valueAs_impl(name, &data[0], bytes);
-                    return Value<Type::Binary>{name, std::move(data)};
+                    return Value<Type::Binary>{std::move(name), std::move(data)};
                 }
                 else if constexpr (type == Type::Dword)
                 {
@@ -333,7 +346,7 @@ namespace RegeditPP
                         reinterpret_cast<BYTE*>(&data),
                         &bytes
                     );
-                    return Value<Type::Dword>{name, data};
+                    return Value<Type::Dword>{std::move(name), data};
                 }
                 else if constexpr (type == Type::Qword)
                 {
@@ -347,7 +360,7 @@ namespace RegeditPP
                         reinterpret_cast<BYTE*>(&data),
                         &bytes
                     );
-                    return Value<Type::Qword>{name, data};
+                    return Value<Type::Qword>{std::move(name), data};
                 }
                 else if constexpr (type == Type::String || type == Type::MultiString || type == Type::UnexpandedString)
                 {
@@ -365,7 +378,7 @@ namespace RegeditPP
 
                     std::wstring value((bytes / sizeof(wchar_t)) - 1, 0);
                     valueAs_impl(name, &value[0], bytes);
-                    return Value<type>{name, std::move(value)};
+                    return Value<type>{std::move(name), std::move(value)};
                 }
             }
 
@@ -382,8 +395,11 @@ namespace RegeditPP
                 );
             }
 
-            Type getType() const
+            Type getType()
             {
+                if (m_type.has_value())
+                    return *m_type;
+
                 Type type{};
                 RegQueryValueExW(
                     m_keyHandle,
@@ -393,11 +409,12 @@ namespace RegeditPP
                     nullptr,
                     nullptr
                 );
+                m_type = type;
                 return type;
             }
 
             template<Type type>
-            bool is() const
+            bool is()
             {
                 return type == getType();
             }
@@ -520,7 +537,7 @@ namespace RegeditPP
                 if (m_index < m_count.subKeys)
                 {
                     std::wstring keyName(m_count.subKeyMaxLength, 0);
-                    DWORD bytes{};
+                    DWORD bytes = m_count.subKeyMaxLength + 1;
                     RegEnumKeyExW(
                         m_keyHandle,
                         m_index,
@@ -531,22 +548,22 @@ namespace RegeditPP
                         nullptr,
                         nullptr
                     );
-                    return ValueVariant{ std::in_place_type<Key>, Key{m_keyHandle, keyName, true} };
+                    return ValueVariant{ std::in_place_type<Key>, Key{m_keyHandle, L"", true}};
                 }
                 else
                 {
                     //enumerate values
                     std::wstring valueName(m_count.valueMaxLength, 0);
-                    DWORD bytes{};
-                    RegEnumKeyExW(
-                        m_keyHandle,
-                        m_index,
-                        &valueName[0],
-                        &bytes,
-                        0,
-                        nullptr,
-                        nullptr,
-                        nullptr
+                    DWORD bytes = m_count.valueMaxLength + 1;
+                    RegEnumValueW(
+                        m_keyHandle,    //hkey
+                        m_index - m_count.subKeys,        //dwIndex
+                        &valueName[0],  //lpValueName
+                        &bytes,         //lpcchValueName
+                        0,              //lpReserved
+                        nullptr,        //lpType
+                        nullptr,        //lpData
+                        nullptr         //lpcbData
                     );
                     //Get type
                     UnspecifiedValue value{ valueName, m_keyHandle };
@@ -579,7 +596,7 @@ namespace RegeditPP
         {
             return this->operator[](std::wstring_view{ subKey });
         }
-        ValueVariant operator[](size_t index) const
+        ValueVariant operator[](DWORD index) const
         {
             return *Iterator{ index, m_keyHandle, getNumChild() };
         }
@@ -606,9 +623,9 @@ namespace RegeditPP
             return Key{keyHandle};
         }
 
-        constexpr auto valueOf(std::wstring_view name) const
+        auto valueOf(std::wstring name) const
         {
-            return UnspecifiedValue{ name, m_keyHandle };
+            return UnspecifiedValue{ std::move(name), m_keyHandle };
         }
 
 
@@ -658,7 +675,7 @@ namespace RegeditPP
         auto end() const
         {
             auto const numChild = getNumChild();
-            return Iterator{ numChild.subKeys + numChild.values, {}, {} };
+            return Iterator{ numChild.subKeys + numChild.values, m_keyHandle, {} };
         }
 
         [[nodiscard]]bool isReflectionEnabled() const

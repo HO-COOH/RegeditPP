@@ -150,3 +150,10 @@ There is a getter function called `.getXYZ()` on multiple wrapper classes. For e
 ```cpp
 HKEY keyHandle = key.getHandle();
 ```
+
+## Testing
+I am too lazy to bother setting up CI for testing. After all, this would be a small convenient utility for my company's software.
+You can checkout the test code in `test.cpp`.
+Here are the screenshots of its running.
+![MSVC](screenshot/MSVC.png)
+![MingW](screenshot/MingW.png)

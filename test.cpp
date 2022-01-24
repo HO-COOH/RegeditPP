@@ -80,42 +80,6 @@ TEST(Read, MultiStringValue)
     }
 }
 
-
-//Add a value
-//TEST(Add, AddBinaryValue)
-//{
-//    auto testKey = CurrentUser[L"test"][L"AddValue"];
-//    testKey += Value<Type::Binary>{L"binaryValue", { 0b1010, 0b0101 }};
-//    testKey.flush();
-//    CompareBinary(
-//        testKey.valueOf(L"binaryValue").as<Type::Binary>().get(),
-//        { 0b1010, 0b0101 }
-//    );
-//}
-//TEST(Add, AddStringValue)
-//{
-//    auto key = CurrentUser[L"test"][L"AddValue"];
-//    key += Value<Type::String>{L"stringValue", L"testValue"};
-//    key.flush();
-//    EXPECT_EQ(key.valueOf(L"stringValue").as<Type::String>().get(), L"testValue");
-//}
-//TEST(Add, AddDwordValue)
-//{
-//    auto key = CurrentUser[L"test"][L"AddValue"];
-//    key += Value<Type::Dword>{L"dwordValue", 0x1234};
-//    key.flush();
-//    EXPECT_EQ(key.valueOf(L"dwordValue").as<Type::Dword>().get(), 0x1234);
-//}
-//TEST(Add, AddQwordValue)
-//{
-//    auto key = CurrentUser[L"test"][L"AddValue"];
-//    key += Value<Type::Qword>{L"dwordValue", 0x1234};
-//    key.flush();
-//    EXPECT_EQ(key.valueOf(L"dwordValue").as<Type::Qword>().get(), 0x1234);
-//}
-
-
-
 //Delete a value
 auto FindValueImpl(HKEY key, std::wstring_view name)
 {
@@ -146,8 +110,8 @@ TEST(DeleteValue, DeleteBinaryValue)
 TEST(Enum, EnumKeys)
 {
     auto key = CurrentUser[L"test"][L"EnumKeys"];
-    std::array const expectedName{
-        L"subkey"
+    std::array const expectedName
+    {   //subkey type does not have getName() method
         L"binaryValue",
         L"dwordValue",
         L"qwordValue",
@@ -157,7 +121,6 @@ TEST(Enum, EnumKeys)
     };
     std::array const expectedType
     {
-        
         Type::Binary,
         Type::Dword,
         Type::Qword,
@@ -203,7 +166,7 @@ TEST(Rename, RenameKey)
 
 TEST(Additional, SplitString)
 {
-    auto key = CurrentUser[L"test"][L"NewTestKey"].valueOf(L"multiString").as<Type::MultiString>();
+    auto key = CurrentUser[L"test"][L"NewTestKey"].valueOf(L"multiStringValue").as<Type::MultiString>();
     auto const splitResult = key.split();
     EXPECT_EQ(splitResult[0], L"multi");
     EXPECT_EQ(splitResult[1], L"string");
@@ -228,6 +191,19 @@ static void CreateTestingEnvironment()
         newTestSubKey += Value<Type::MultiString>(L"multiStringValue", std::wstring{ std::begin(value), std::end(value) });
     }
 
+    {
+        auto enumSubKey = testKey.create(L"EnumKeys");
+        enumSubKey.create(L"subkey");
+        enumSubKey += Value<Type::Binary>(L"binaryValue", { 0x01, 0x02, 0x03, 0x04 });
+        enumSubKey += Value<Type::Dword>(L"dwordValue", 0x4d2);  //1234 decimal
+        enumSubKey += Value<Type::Qword>(L"qwordValue", 0x162e); //5678 decimal
+        enumSubKey += Value<Type::String>(L"stringValue", std::wstring{ L"string value" });
+        enumSubKey += Value<Type::UnexpandedString>(L"unexpandedStringValue", std::wstring{ L"%PATH%" });
+        wchar_t const value[] = L"multi\0string\0";
+        enumSubKey += Value<Type::MultiString>(L"multiStringValue", std::wstring{ std::begin(value), std::end(value) });
+    }
+
+    auto emptySubKey = testKey.create(L"empty");
 }
 
 int main(int argc, char **argv) 
